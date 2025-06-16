@@ -8,13 +8,9 @@ namespace pi_client.Models
 {
     public class ReceiveProcess : ProcessBase
     {
-        public ReceiveProcess()
-        {
-            Type = ProcessType.Receive;
-            Name = "Receive";
-        }
-
-        public string Channel { get; set; } = "default";
+        public override ProcessType Type => ProcessType.Receive;
+        public override string Name => "Receive";
+        public string Channel { get; set; }
         public string Filter { get; set; }
     }
 }

@@ -1,45 +1,319 @@
-﻿using pi_client.Models;
+﻿
+using pi_client.Models;
 using pi_client.Util;
+using pi_client.Views;
 using PropertyChanged;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using System.Text.Json;
 
 namespace pi_client.ViewModels
 {
     public class MainViewModel
     {
+        //public ObservableCollection<ProcessBase> Processes { get; } = new ObservableCollection<ProcessBase>();
+        //public ObservableCollection<ChannelModel> Channels { get; } = new ObservableCollection<ChannelModel>();
+        //public ObservableCollection<ProcessConnection> Connections { get; } = new ObservableCollection<ProcessConnection>;
+
+        //public ICommand AddSendProcessCommand { get; }
+        //public ICommand AddReceiveProcessCommand { get; }
+
+        //public MainViewModel()
+        //{
+        //    AddSendProcessCommand = new RelayCommand(AddSendProcess);
+        //    AddReceiveProcessCommand = new RelayCommand(AddReceiveProcess);
+        //}
+
+        //private void AddSendProcess()
+        //{
+        //    Processes.Add(new SendProcess
+        //    {
+        //        Position = new Point(100, 100)
+        //    });
+        //}
+
+        //private void AddReceiveProcess()
+        //{
+        //    Processes.Add(new ReceiveProcess
+        //    {
+        //        Position = new Point(300, 100)
+        //    });
+        //}
+        //private ProcessBase _draggedItem;
+        //private Point _startPoint;
+
+        //public ICommand ProcessMouseDownCommand => new RelayCommand<MouseButtonEventArgs>(OnProcessMouseDown);
+        //public ICommand ProcessMouseMoveCommand => new RelayCommand<MouseEventArgs>(OnProcessMouseMove);
+        //public ICommand ProcessMouseUpCommand => new RelayCommand<MouseButtonEventArgs>(OnProcessMouseUp);
+
+        //private void OnProcessMouseDown(MouseButtonEventArgs e)
+        //{
+        //    if (e.Source is FrameworkElement element && element.DataContext is ProcessBase process)
+        //    {
+        //        _draggedItem = process;
+        //        _startPoint = e.GetPosition(null);
+        //        element.CaptureMouse();
+        //    }
+        //}
+
+        //private void OnProcessMouseMove(MouseEventArgs e)
+        //{
+        //    if (_draggedItem != null && e.LeftButton == MouseButtonState.Pressed)
+        //    {
+        //        var currentPoint = e.GetPosition(null);
+        //        var offset = currentPoint - _startPoint;
+
+        //        _draggedItem.Position = new Point(
+        //            _draggedItem.Position.X + offset.X,
+        //            _draggedItem.Position.Y + offset.Y);
+
+        //        _startPoint = currentPoint;
+        //    }
+        //}
+
+        //private void OnProcessMouseUp(MouseButtonEventArgs e)
+        //{
+        //    _draggedItem = null;
+        //    if (e.Source is FrameworkElement element)
+        //    {
+        //        element.ReleaseMouseCapture();
+        //    }
+        //}
+
+        //private ProcessBase _selectedProcess;
+
+        //public ICommand SelectProcessCommand => new RelayCommand<ProcessBase>(p => {
+        //    if (_selectedProcess == null)
+        //    {
+        //        _selectedProcess = p;
+        //    }
+        //    else
+        //    {
+        //        Connections.Add(new ProcessConnection
+        //        {
+        //            Source = _selectedProcess,
+        //            Target = p,
+        //            ChannelName = "default"
+        //        });
+        //        _selectedProcess = null;
+        //    }
+        //});
+
+        private readonly HttpClient _httpClient = new HttpClient();
+        private readonly string _apiUrl = "http://localhost:5000";
+
         public ObservableCollection<ProcessBase> Processes { get; } = new ObservableCollection<ProcessBase>();
         public ObservableCollection<ChannelModel> Channels { get; } = new ObservableCollection<ChannelModel>();
 
-        public ICommand AddSendProcessCommand { get; }
-        public ICommand AddReceiveProcessCommand { get; }
+        public ICommand AddSendCommand { get; }
+        public ICommand AddReceiveCommand { get; }
+        public ICommand ExecuteCommand { get; }
+        public ICommand ConnectCommand { get; }
+        public ICommand SelectProcessCommand { get; }
+
+        private ProcessBase _firstSelectedProcess;
+        private ProcessBase _secondSelectedProcess;
 
         public MainViewModel()
         {
-            AddSendProcessCommand = new RelayCommand(AddSendProcess);
-            AddReceiveProcessCommand = new RelayCommand(AddReceiveProcess);
+            AddSendCommand = new RelayCommand(AddSendProcess);
+            AddReceiveCommand = new RelayCommand(AddReceiveProcess);
+            ExecuteCommand = new RelayCommand(ExecuteProcesses);
+            ConnectCommand = new RelayCommand(CreateChannel);
+            SelectProcessCommand = new RelayCommand<ProcessBase>(SelectProcess);
         }
 
         private void AddSendProcess()
         {
-            Processes.Add(new SendProcess
+            var dialog = new SendProcessDialog();
+            if (dialog.ShowDialog() == true)
             {
-                Position = new Point(100, 100)
-            });
+                CreateSendProcessBackend(dialog.Channel, dialog.Message);
+            }
+        }
+
+        private async void CreateSendProcessBackend(string channel, string message)
+        {
+            try
+            {
+                var request = new
+                {
+                    Channel = channel,
+                    Message = message,
+                    Continuation = (object)null
+                };
+
+                var response = await _httpClient.PostAsJsonAsync($"{_apiUrl}/api/PiCalculus/send", request);
+                if (response.IsSuccessStatusCode)
+                {
+                    var process = new SendProcess
+                    {
+                        Channel = channel,
+                        Message = message,
+                        Position = new Point(100 + Processes.Count * 60, 100)
+                    };
+                    Application.Current.Dispatcher.Invoke(() => Processes.Add(process));
+                }
+                else
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    MessageBox.Show($"Error creating send process: {error}");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error: {ex.Message}");
+            }
         }
 
         private void AddReceiveProcess()
         {
-            Processes.Add(new ReceiveProcess
+            var dialog = new ReceiveProcessDialog();
+            if (dialog.ShowDialog() == true)
             {
-                Position = new Point(300, 100)
-            });
+                CreateReceiveProcessBackend(dialog.Channel, dialog.Filter, dialog.WaitForMessage);
+            }
         }
+
+        private async void CreateReceiveProcessBackend(string channel, string filter, bool waitForMessage)
+        {
+            try
+            {
+                var request = new
+                {
+                    Channel = channel,
+                    Filter = filter,
+                    WaitForMessage = waitForMessage
+                };
+
+                var response = await _httpClient.PostAsJsonAsync($"{_apiUrl}/api/PiCalculus/receive", request);
+                if (response.IsSuccessStatusCode)
+                {
+                    var process = new ReceiveProcess
+                    {
+                        Channel = channel,
+                        Filter = filter,
+                        Position = new Point(100 + Processes.Count * 60, 200)
+                    };
+                    Application.Current.Dispatcher.Invoke(() => Processes.Add(process));
+                }
+                else
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    MessageBox.Show($"Error creating receive process: {error}");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error: {ex.Message}");
+            }
+        }
+
+        private void SelectProcess(ProcessBase process)
+        {
+            if (_firstSelectedProcess == null)
+            {
+                _firstSelectedProcess = process;
+                process.IsActive = true;
+            }
+            else if (_secondSelectedProcess == null && _firstSelectedProcess != process)
+            {
+                _secondSelectedProcess = process;
+                process.IsActive = true;
+            }
+            else
+            {
+                if (_firstSelectedProcess != null) _firstSelectedProcess.IsActive = false;
+                if (_secondSelectedProcess != null) _secondSelectedProcess.IsActive = false;
+                _firstSelectedProcess = process;
+                _secondSelectedProcess = null;
+                process.IsActive = true;
+            }
+        }
+
+        private void CreateChannel()
+        {
+            if (_firstSelectedProcess != null && _secondSelectedProcess != null)
+            {
+                var channel = new ChannelModel
+                {
+                    Name = "channel1",
+                    Source = _firstSelectedProcess,
+                    Target = _secondSelectedProcess
+                };
+                Channels.Add(channel);
+
+                _firstSelectedProcess.IsActive = false;
+                _secondSelectedProcess.IsActive = false;
+                _firstSelectedProcess = _secondSelectedProcess = null;
+            }
+        }
+
+        private async void ExecuteProcesses()
+        {
+            try
+            {
+                // Подготовка анимации
+                if (Channels.Count > 0 && Processes.Count >= 2)
+                {
+                    var channel = Channels[0];
+                    channel.IsActive = true;
+                    channel.Source.IsActive = true;
+                }
+
+                // Выполнение на бекенде
+                var response = await _httpClient.PostAsync($"{_apiUrl}/api/PiCalculus/execute", null);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    // Получение результата выполнения
+                    var content = await response.Content.ReadAsStringAsync();
+                    var processResponse = JsonSerializer.Deserialize<ProcessResponse>(content, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+
+                    // Активация получателя
+                    if (Processes.Count > 1)
+                    {
+                        Processes[1].IsActive = true;
+                    }
+
+                    MessageBox.Show($"Process executed successfully!\nResult: {processResponse?.Result}");
+                }
+                else
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    MessageBox.Show($"Execution error: {error}");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error: {ex.Message}");
+            }
+            finally
+            {
+                // Сброс состояний
+                if (Channels.Count > 0) Channels[0].IsActive = false;
+                if (Processes.Count > 0) Processes[0].IsActive = false;
+            }
+        }
+
+        // Модель для десериализации ответа
+        private class ProcessResponse
+        {
+            public string Diagram { get; set; }
+            public string Result { get; set; }
+            public bool Success { get; set; }
+            public string Error { get; set; }
+        }
+
     }
 }

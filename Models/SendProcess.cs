@@ -8,13 +8,9 @@ namespace pi_client.Models
 {
     public class SendProcess : ProcessBase
     {
-        public SendProcess()
-        {
-            Type = ProcessType.Send;
-            Name = "Send";
-        }
-
-        public string Channel { get; set; } = "default";
-        public string Message { get; set; } = "Hello";
+        public override ProcessType Type => ProcessType.Send;
+        public override string Name => "Send";
+        public string Channel { get; set; }
+        public string Message { get; set; }
     }
 }
