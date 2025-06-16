@@ -1,0 +1,36 @@
+﻿<Window x:Class="pi_client.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:pi_client"
+        Title="π-Calculus Visualizer" Height="600" Width="800">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Панель инструментов -->
+        <ToolBar Grid.Row="0">
+            <Button Content="Add Send" Command="{Binding AddSendProcessCommand}"/>
+            <Button Content="Add Receive" Command="{Binding AddReceiveProcessCommand}"/>
+        </ToolBar>
+
+        <!-- Область процессов -->
+        <ItemsControl Grid.Row="1" ItemsSource="{Binding Processes}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <Canvas Background="WhiteSmoke"/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border Width="120" Height="60" Background="LightBlue"
+                            Canvas.Left="{Binding Position.X}"
+                            Canvas.Top="{Binding Position.Y}">
+                        <TextBlock Text="{Binding Name}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </Grid>
+</Window>
