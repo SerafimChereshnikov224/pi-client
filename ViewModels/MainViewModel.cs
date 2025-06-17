@@ -9,10 +9,11 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
-using System.Text.Json;
 
 namespace pi_client.ViewModels
 {
@@ -106,8 +107,23 @@ namespace pi_client.ViewModels
         //    }
         //});
 
+        private int _processCount;
+        private Point GetNextPosition()
+        {
+            int col = _processCount % 2;  
+            int row = _processCount / 2;  
+
+            var point = new Point(
+                100 + col * 300,  
+                50 + row * 100    
+            );
+
+            _processCount++;
+            return point;
+        }
+
         private readonly HttpClient _httpClient = new HttpClient();
-        private readonly string _apiUrl = "http://localhost:5000";
+        private readonly string _apiUrl = "http://localhost:63878";
 
         public ObservableCollection<ProcessBase> Processes { get; } = new ObservableCollection<ProcessBase>();
         public ObservableCollection<ChannelModel> Channels { get; } = new ObservableCollection<ChannelModel>();
@@ -117,6 +133,7 @@ namespace pi_client.ViewModels
         public ICommand ExecuteCommand { get; }
         public ICommand ConnectCommand { get; }
         public ICommand SelectProcessCommand { get; }
+        public ICommand ResetCommand { get; }
 
         private ProcessBase _firstSelectedProcess;
         private ProcessBase _secondSelectedProcess;
@@ -128,6 +145,21 @@ namespace pi_client.ViewModels
             ExecuteCommand = new RelayCommand(ExecuteProcesses);
             ConnectCommand = new RelayCommand(CreateChannel);
             SelectProcessCommand = new RelayCommand<ProcessBase>(SelectProcess);
+            ResetCommand = new RelayCommand(Reset);
+        }
+
+        private void Reset()
+        {
+            var result = MessageBox.Show(
+                "Вы уверены, что хотите сбросить все процессы и соединения?",
+                "Подтверждение сброса",
+                MessageBoxButton.YesNo);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                Processes.Clear();
+                Channels.Clear();
+            }
         }
 
         private void AddSendProcess()
@@ -150,14 +182,14 @@ namespace pi_client.ViewModels
                     Continuation = (object)null
                 };
 
-                var response = await _httpClient.PostAsJsonAsync($"{_apiUrl}/api/PiCalculus/send", request);
+                var response = await _httpClient.PostAsJsonAsync($"{_apiUrl}/api/builder/send", request);
                 if (response.IsSuccessStatusCode)
                 {
                     var process = new SendProcess
                     {
                         Channel = channel,
                         Message = message,
-                        Position = new Point(100 + Processes.Count * 60, 100)
+                        Position = GetNextPosition()
                     };
                     Application.Current.Dispatcher.Invoke(() => Processes.Add(process));
                 }
@@ -193,14 +225,14 @@ namespace pi_client.ViewModels
                     WaitForMessage = waitForMessage
                 };
 
-                var response = await _httpClient.PostAsJsonAsync($"{_apiUrl}/api/PiCalculus/receive", request);
+                var response = await _httpClient.PostAsJsonAsync($"{_apiUrl}/api/builder/receive", request);
                 if (response.IsSuccessStatusCode)
                 {
                     var process = new ReceiveProcess
                     {
                         Channel = channel,
                         Filter = filter,
-                        Position = new Point(100 + Processes.Count * 60, 200)
+                        Position = GetNextPosition()
                     };
                     Application.Current.Dispatcher.Invoke(() => Processes.Add(process));
                 }
@@ -269,7 +301,7 @@ namespace pi_client.ViewModels
                 }
 
                 // Выполнение на бекенде
-                var response = await _httpClient.PostAsync($"{_apiUrl}/api/PiCalculus/execute", null);
+                var response = await _httpClient.PostAsync($"{_apiUrl}/api/builder/execute", null);
 
                 if (response.IsSuccessStatusCode)
                 {
@@ -286,7 +318,7 @@ namespace pi_client.ViewModels
                         Processes[1].IsActive = true;
                     }
 
-                    MessageBox.Show($"Process executed successfully!\nResult: {processResponse?.Result}");
+                    MessageBox.Show($"Process executed successfully! {processResponse?.Result}");
                 }
                 else
                 {
