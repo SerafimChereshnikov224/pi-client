@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows;
 
 namespace pi_client.Models
 {
@@ -13,6 +14,7 @@ namespace pi_client.Models
         private ProcessBase _source;
         private ProcessBase _target;
         private bool _isActive;
+        public Point BallPosition { get; set; }
 
         public string Name
         {

@@ -6,10 +6,13 @@ using PropertyChanged;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
@@ -17,8 +20,14 @@ using System.Windows.Input;
 
 namespace pi_client.ViewModels
 {
-    public class MainViewModel
+    public class MainViewModel : INotifyPropertyChanged
     {
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
         //public ObservableCollection<ProcessBase> Processes { get; } = new ObservableCollection<ProcessBase>();
         //public ObservableCollection<ChannelModel> Channels { get; } = new ObservableCollection<ChannelModel>();
         //public ObservableCollection<ProcessConnection> Connections { get; } = new ObservableCollection<ProcessConnection>;
@@ -146,6 +155,53 @@ namespace pi_client.ViewModels
             ConnectCommand = new RelayCommand(CreateChannel);
             SelectProcessCommand = new RelayCommand<ProcessBase>(SelectProcess);
             ResetCommand = new RelayCommand(Reset);
+            SendJsonCommand = new RelayCommand(SendJsonToServer);
+            JsonInput = "{" +
+                " }";
+        }
+
+        private async void SendJsonToServer()
+        {
+            var jsonInputWindow = new JsonInputWindow();
+            if (jsonInputWindow.ShowDialog() == true)
+            {
+                try
+                {
+                    // Проверка JSON
+                    if (string.IsNullOrWhiteSpace(jsonInputWindow.JsonInput))
+                    {
+                        MessageBox.Show("Please enter valid JSON");
+                        return;
+                    }
+
+                    // 1. Отправляем parallel запрос
+                    var parallelContent = new StringContent(jsonInputWindow.JsonInput, Encoding.UTF8, "application/json");
+                    var parallelResponse = await _httpClient.PostAsync($"{_apiUrl}/api/builder/parallel", parallelContent);
+                    parallelResponse.EnsureSuccessStatusCode();
+
+                    // 2. Выполняем процесс
+                    var executeResponse = await _httpClient.PostAsync($"{_apiUrl}/api/builder/execute", null);
+                    executeResponse.EnsureSuccessStatusCode();
+
+                    // 3. Получаем результаты
+                    var result = await executeResponse.Content.ReadAsStringAsync();
+                    var response = JsonSerializer.Deserialize<ProcessResponse>(result);
+
+                    // Показываем результаты
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        new ExecutionResultWindow(
+                            diagram: response?.Diagram ?? "No diagram",
+                            messages: response?.Messages ?? new List<string> { "No messages" },
+                            result: response?.Result ?? "Execution completed"
+                        ).ShowDialog();
+                    });
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error: {ex.Message}");
+                }
+            }
         }
 
         private void Reset()
@@ -288,37 +344,42 @@ namespace pi_client.ViewModels
             }
         }
 
+        private bool _isExecuting;
+        public ObservableCollection<ChannelModel> ActiveChannels { get; } = new ObservableCollection<ChannelModel>();
+
         private async void ExecuteProcesses()
         {
+            if (_isExecuting) return;
             try
             {
-                // Подготовка анимации
-                if (Channels.Count > 0 && Processes.Count >= 2)
+                _isExecuting = true;
+                ActiveChannels.Clear();
+
+                foreach (var channel in Channels)
                 {
-                    var channel = Channels[0];
                     channel.IsActive = true;
-                    channel.Source.IsActive = true;
+                    ActiveChannels.Add(channel);
                 }
 
-                // Выполнение на бекенде
+                var animationTask = AnimateExecution();
+
                 var response = await _httpClient.PostAsync($"{_apiUrl}/api/builder/execute", null);
+
+                await animationTask;
 
                 if (response.IsSuccessStatusCode)
                 {
-                    // Получение результата выполнения
                     var content = await response.Content.ReadAsStringAsync();
-                    var processResponse = JsonSerializer.Deserialize<ProcessResponse>(content, new JsonSerializerOptions
+                    var processResponse = JsonSerializer.Deserialize<ProcessResponse>(content);
+                    Application.Current.Dispatcher.Invoke(() =>
                     {
-                        PropertyNameCaseInsensitive = true
+                        // Создаем окно напрямую с данными
+                        new ExecutionResultWindow(
+                            diagram: processResponse?.Diagram,
+                            messages: processResponse?.Messages,
+                            result: processResponse?.Result
+                        ).ShowDialog();
                     });
-
-                    // Активация получателя
-                    if (Processes.Count > 1)
-                    {
-                        Processes[1].IsActive = true;
-                    }
-
-                    MessageBox.Show($"Process executed successfully! {processResponse?.Result}");
                 }
                 else
                 {
@@ -332,19 +393,54 @@ namespace pi_client.ViewModels
             }
             finally
             {
-                // Сброс состояний
-                if (Channels.Count > 0) Channels[0].IsActive = false;
-                if (Processes.Count > 0) Processes[0].IsActive = false;
+                _isExecuting = false;
+                ActiveChannels.Clear();
+                foreach (var channel in Channels) channel.IsActive = false;
             }
         }
 
-        // Модель для десериализации ответа
-        private class ProcessResponse
+        private async Task AnimateExecution()
         {
+            double progress = 0;
+            while (progress < 1 && _isExecuting)
+            {
+                progress += 0.005;
+                foreach (var channel in ActiveChannels)
+                {
+                    channel.BallPosition = new Point(
+                        channel.Source.Position.X + (channel.Target.Position.X - channel.Source.Position.X) * progress,
+                        channel.Source.Position.Y + (channel.Target.Position.Y - channel.Source.Position.Y) * progress);
+                }
+                await Task.Delay(50);
+            }
+        }
+
+        private string _jsonInput;
+        public string JsonInput
+        {
+            get => _jsonInput;
+            set
+            {
+                if (_jsonInput == value) return;
+                _jsonInput = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public ICommand SendJsonCommand { get; }
+
+
+        // Модель для десериализации ответа
+        public class ProcessResponse
+        {
+            [JsonPropertyName("diagram")]
             public string Diagram { get; set; }
+
+            [JsonPropertyName("messages")]
+            public List<string> Messages { get; set; }
+
+            [JsonPropertyName("result")]
             public string Result { get; set; }
-            public bool Success { get; set; }
-            public string Error { get; set; }
         }
 
     }

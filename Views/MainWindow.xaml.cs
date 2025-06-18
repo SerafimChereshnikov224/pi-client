@@ -26,5 +26,7 @@ namespace pi_client.Views
             InitializeComponent();
             DataContext = new MainViewModel();
         }
+
+
     }
 }
